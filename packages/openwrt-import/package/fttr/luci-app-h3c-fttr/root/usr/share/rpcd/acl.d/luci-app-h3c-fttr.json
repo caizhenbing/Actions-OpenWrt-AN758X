@@ -1,0 +1,15 @@
+{
+	"luci-app-h3c-fttr": {
+		"description": "Grant access to the H3C FTTR master-OLT FPGA status and register console",
+		"read": {
+			"ubus": {
+				"luci.h3c_fttr": [ "status", "regread" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.h3c_fttr": [ "regwrite" ]
+			}
+		}
+	}
+}

@@ -1,0 +1,14 @@
+{
+	"admin/services/h3c_fttr": {
+		"title": "FTTR Master OLT",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "h3c_fttr/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-h3c-fttr" ],
+			"uci": [ "h3c_fttr" ]
+		}
+	}
+}

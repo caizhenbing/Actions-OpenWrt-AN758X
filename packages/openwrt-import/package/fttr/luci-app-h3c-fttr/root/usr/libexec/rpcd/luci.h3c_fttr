@@ -1,0 +1,179 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# rpcd exec plugin exposing the H3C FTTR master-OLT FPGA to LuCI.
+#
+# rpcd runs this with either "list" (declare the methods) or "call <method>"
+# (with the JSON arguments on stdin).  Everything it needs is already available
+# as files or through miniolt, so no daemon is required:
+#
+#   /sys/module/fttr_fmcs            module presence
+#   /dev/fmcs_mci                    character device
+#   /proc/fpgaLoad                   bitstream loader state
+#   /sys/class/net/molt_{ploam,omci} control net devices
+#   miniolt read|write               register access
+#
+# This mirrors the zh-volt architecture: a thin rpcd shim is the only bridge,
+# and the browser never talks to anything else directly.
+
+# Registers the console will read.  These are the addresses the vendor driver
+# itself touches while servicing interrupts; anything else is left to the raw
+# register console, because the rest of the FPGA register map has not been
+# recovered yet.  See docs/REVERSE_ENGINEERING.md section 10.2, risk R5.
+FMCS_INT_STATUS0=0x0000
+FMCS_INT_STATUS1=0x0004
+
+json_escape() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+read_file() {
+	[ -r "$1" ] && cat "$1" 2>/dev/null
+}
+
+# Run miniolt and hand back a single line fit for a JSON error field.  The tool
+# reports the device node and the failure together, and a shell that cannot find
+# it prefixes a path and a line number; neither belongs in a UI message.
+run_miniolt() {
+	local out
+
+	if ! command -v miniolt >/dev/null 2>&1; then
+		printf 'miniolt is not installed'
+		return 1
+	fi
+
+	out=$(miniolt "$@" 2>&1)
+	if [ $? -ne 0 ]; then
+		printf '%s' "$out" | grep -v '^$' | tail -n 1
+		return 1
+	fi
+
+	printf '%s' "$out"
+
+	return 0
+}
+
+# Emit the whole status object.  Every field is always present so the JavaScript
+# view never has to distinguish "missing" from "zero".
+do_status() {
+	local loaded="false" dev="false" ploam="false" omci="false"
+	local holdtimes="" status0="" status1="" driver="" irq=""
+	local rx_ploam="" tx_ploam="" rx_omci="" tx_omci=""
+
+	[ -d /sys/module/fttr_fmcs ] && loaded="true"
+	[ -c /dev/fmcs_mci ] && dev="true"
+	[ -d /sys/class/net/molt_ploam ] && ploam="true"
+	[ -d /sys/class/net/molt_omci ] && omci="true"
+
+	driver=$(read_file /sys/module/fttr_fmcs/version)
+	holdtimes=$(read_file /proc/fpgaLoad)
+
+	# moltdbg's own bring-up hint is "cat /proc/interrupts | grep fmcs"; the
+	# count is the quickest way to tell whether the FPGA is raising interrupts
+	# at all, so surface it.
+	irq=$(awk '/fmcs/ { print $2 }' /proc/interrupts 2>/dev/null | head -n 1)
+
+	rx_ploam=$(read_file /sys/class/net/molt_ploam/statistics/rx_packets)
+	tx_ploam=$(read_file /sys/class/net/molt_ploam/statistics/tx_packets)
+	rx_omci=$(read_file /sys/class/net/molt_omci/statistics/rx_packets)
+	tx_omci=$(read_file /sys/class/net/molt_omci/statistics/tx_packets)
+
+	# A read of an absent FPGA fails; run_miniolt reduces that to one line.
+	if [ "$dev" = "true" ]; then
+		status0=$(run_miniolt read fpga $FMCS_INT_STATUS0 | \
+			sed -n 's/^reg value : //p')
+		status1=$(run_miniolt read fpga $FMCS_INT_STATUS1 | \
+			sed -n 's/^reg value : //p')
+	fi
+
+	printf '{"loaded":%s,"chardev":%s,"netdev_ploam":%s,"netdev_omci":%s,' \
+		"$loaded" "$dev" "$ploam" "$omci"
+	printf '"driver_version":"%s","holdtimes":"%s","irq_count":"%s",' \
+		"$(json_escape "$driver")" "$(json_escape "$holdtimes")" \
+		"$(json_escape "$irq")"
+	printf '"int_status0":"%s","int_status1":"%s",' \
+		"$(json_escape "$status0")" "$(json_escape "$status1")"
+	printf '"ploam_rx":"%s","ploam_tx":"%s","omci_rx":"%s","omci_tx":"%s"}' \
+		"$(json_escape "$rx_ploam")" "$(json_escape "$tx_ploam")" \
+		"$(json_escape "$rx_omci")" "$(json_escape "$tx_omci")"
+}
+
+# Parse the request body, which rpcd supplies as {"addr":"0x…","type":"fpga"}.
+json_get_string() {
+	local key="$1"
+	sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+json_get_number() {
+	local key="$1"
+	sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p"
+}
+
+do_regread() {
+	local body type addr out
+
+	body=$(cat)
+	type=$(printf '%s' "$body" | json_get_string type)
+	addr=$(printf '%s' "$body" | json_get_string addr)
+
+	case "$type" in
+		fpga|bosa) ;;
+		*) printf '{"error":"type must be fpga or bosa"}'; return ;;
+	esac
+
+	[ -n "$addr" ] || { printf '{"error":"addr is required"}'; return; }
+
+	if ! out=$(run_miniolt read "$type" "$addr"); then
+		printf '{"error":"%s"}' "$(json_escape "$out")"
+		return
+	fi
+
+	printf '{"addr":"%s","value":"%s"}' \
+		"$(json_escape "$addr")" \
+		"$(printf '%s' "$out" | sed -n 's/^reg value : //p' | json_escape)"
+}
+
+do_regwrite() {
+	local body type addr value out
+
+	body=$(cat)
+	type=$(printf '%s' "$body" | json_get_string type)
+	addr=$(printf '%s' "$body" | json_get_string addr)
+	value=$(printf '%s' "$body" | json_get_string value)
+
+	case "$type" in
+		fpga|bosa) ;;
+		*) printf '{"error":"type must be fpga or bosa"}'; return ;;
+	esac
+
+	[ -n "$addr" ] && [ -n "$value" ] || {
+		printf '{"error":"addr and value are required"}'
+		return
+	}
+
+	if ! out=$(run_miniolt write "$type" "$addr" "$value"); then
+		printf '{"error":"%s"}' "$(json_escape "$out")"
+		return
+	fi
+
+	printf '{"ok":true}'
+}
+
+case "$1" in
+	list)
+		printf '{"status":{},"regread":{"type":"string","addr":"string"},'
+		printf '"regwrite":{"type":"string","addr":"string","value":"string"}}'
+		;;
+	call)
+		case "$2" in
+			status)		do_status ;;
+			regread)	do_regread ;;
+			regwrite)	do_regwrite ;;
+			*)		printf '{"error":"unknown method"}' ;;
+		esac
+		;;
+	*)
+		printf '{"error":"usage: %s list|call <method>"}' "$0" >&2
+		exit 1
+		;;
+esac

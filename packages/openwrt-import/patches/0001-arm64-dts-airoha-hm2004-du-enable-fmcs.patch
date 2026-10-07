@@ -1,0 +1,83 @@
+From: H3C HM2004-DU FTTR port
+Subject: [PATCH] arm64: dts: airoha: hm2004-du: wire up the FMCS FTTR FPGA
+
+Replace the disabled placeholder fmcs node with the real binding.
+
+The wiring is recovered from the stock device tree (the DTB appended to
+mtd2_kernel.bin at file offset 0x21fc), which reads:
+
+    fmcs {
+        compatible = "h3c,fmcs";
+        spi-controller = <0xb>;
+        fpga-spi-int-gpio = <0x17>;
+        interrupts = <0x0 0x1a 0x1>;
+        fpga-load-rst-gpio      = <0x0>;
+        fpga-load-cfg-done-gpio = <0x0>;
+        fpga-load-flag-gpio     = <0x0>;
+        fpga-load-clk-gpio      = <0x0>;
+        fpga-load-do-gpio       = <0x0>;
+    };
+
+The five fpga-load-* properties are zero in the shipped DTB and no shipped
+module reads them: the loader that actually runs, fpga_load.ko, has no
+device-tree code at all and drives hard-coded GPIO block bits.  Those bits map
+one-to-one onto GPIO numbers, which is how the configuration port below is
+derived.  See docs/REVERSE_ENGINEERING.md sections 1 and 6.
+
+The register transport is deliberately left unbound: the SPI controller that
+carries chip select 1 is owned by the SPI-NAND driver in this tree and does not
+yet serve generic transfers.  See docs/NEXT_STEPS.md.
+
+---
+ target/linux/airoha/dts/an7581-h3c-hm2004-du.dts | 39 lines changed
+ 1 file changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/target/linux/airoha/dts/an7581-h3c-hm2004-du.dts b/target/linux/airoha/dts/an7581-h3c-hm2004-du.dts
+--- a/target/linux/airoha/dts/an7581-h3c-hm2004-du.dts
++++ b/target/linux/airoha/dts/an7581-h3c-hm2004-du.dts
+@@ -129,10 +129,41 @@
+ 	 *       status = "okay";
+ 	 *   };
+ 	 */
+-	fmcs {
+-		compatible = "h3c,fmcs";
+-		status = "disabled";
+-	};
++	fmcs {
++		compatible = "h3c,fmcs";
++
++		/*
++		 * The FPGA interrupt arrives through the pinctrl's GPIO
++		 * interrupt controller, not the GIC directly: the stock node
++		 * names GIC SPI 26, which is exactly the interrupt
++		 * en7581_pinctrl claims for itself in an7581.dtsi.
++		 */
++		interrupt-parent = <&en7581_pinctrl>;
++		interrupts = <23 IRQ_TYPE_LEVEL_HIGH>;
++
++		/*
++		 * FPGA configuration port, driven once at probe by the driver's
++		 * bitstream loader.  ACTIVE_HIGH throughout, because the vendor
++		 * shifts raw bit values rather than using inverted logic.
++		 */
++		nconfig-gpios   = <&en7581_pinctrl 5  GPIO_ACTIVE_HIGH>;
++		rst-gpios       = <&en7581_pinctrl 22 GPIO_ACTIVE_HIGH>;
++		clk-gpios       = <&en7581_pinctrl 29 GPIO_ACTIVE_HIGH>;
++		data-gpios      = <&en7581_pinctrl 30 GPIO_ACTIVE_HIGH>;
++		status-gpios    = <&en7581_pinctrl 27 GPIO_ACTIVE_HIGH>;
++		conf-done-gpios = <&en7581_pinctrl 28 GPIO_ACTIVE_HIGH>;
++
++		/*
++		 * Runtime register transport.
++		 *
++		 * The FPGA sits on chip select 1 of the SPI controller at
++		 * 0x1fa10000, which this tree hands to the SPI-NAND driver.
++		 * Until that driver serves generic transfers the register path
++		 * cannot bind and only the bitstream load above takes effect.
++		 * See docs/NEXT_STEPS.md.
++		 */
++		status = "okay";
++	};
+ };
+ 
+ &en7581_pinctrl {

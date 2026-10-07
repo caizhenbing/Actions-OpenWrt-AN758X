@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# First-boot setup for the H3C FTTR master-OLT FPGA.
+
+uci -q batch <<-EOF
+	set h3c_fttr.main=fttr
+	set h3c_fttr.main.enabled='1'
+	set h3c_fttr.main.load_bitstream='1'
+	commit h3c_fttr
+EOF
+
+exit 0
