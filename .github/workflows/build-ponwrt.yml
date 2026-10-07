@@ -688,6 +688,23 @@ jobs:
           echo "✅ PON 关键包校验通过"
 
           # =========================================================
+          # FTTR 校验（defconfig 之后）：包必须在 .config 里 =y/=m，
+          # 否则 diy-part1.sh 拷了包却没进镜像（静默剔除）。
+          # =========================================================
+          if [ "${PROFILE}" = "h3c_hm2004-du" ]; then
+            FTTR_MISS=""
+            for p in kmod-fttr-fmcs fttr-tools luci-app-h3c-fttr; do
+              grep -q "^CONFIG_PACKAGE_${p}=[ym]" .config || FTTR_MISS="$FTTR_MISS $p"
+            done
+            if [ -n "$FTTR_MISS" ]; then
+              echo "::error::FTTR 包在 defconfig 后未启用:$FTTR_MISS（索引没建？目录没拷？）"
+              exit 1
+            fi
+            echo "✅ FTTR 包校验通过"
+          fi
+
+
+          # =========================================================
           # NPU 固件校验（defconfig 之后）
           #   clanker：可选插件包 CONFIG_PACKAGE_airoha-<soc>-<wifi>-npu-firmware 必须 =y
           #            stock 包必须 =n（否则两个包装同一批文件名）
@@ -1084,6 +1101,20 @@ jobs:
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
 
       # =========================================================
+      # 21. FTTR 产物自检：编译成功后确认三个核心 ipk 已产出
+      # =========================================================
+      - name: Check FTTR artefacts
+        if: env.PROFILE == 'h3c_hm2004-du' && steps.compile.outputs.status == 'success'
+        run: |
+          cd "$BUILD_ROOT/openwrt"
+          for p in kmod-fttr-fmcs fttr-tools luci-app-h3c-fttr; do
+            n=$(find bin -name "${p}_*.ipk" | wc -l)
+            echo "$p -> $n ipk"
+            [ "$n" -gt 0 ] || { echo "::error::$p 未产出 ipk"; exit 1; }
+          done
+
+
+      # =========================================================
       # 19. 空间检查
       # =========================================================
       - name: Check space usage
@@ -1234,3 +1265,4 @@ jobs:
           delete_tag_pattern: '^${{ env.DEVICE_NAME }}-'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
