@@ -17,7 +17,7 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: ${{ github.event.inputs.upload_release || 'true' }}
   USE_DL_CACHE: true
-  USE_CCACHE: false
+  USE_CCACHE: true
   TZ: Asia/Shanghai
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REPO_BRANCH: ${{ github.event.inputs.branch || 'master' }}
