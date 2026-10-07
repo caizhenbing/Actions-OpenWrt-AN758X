@@ -26,6 +26,7 @@
 #include <linux/interrupt.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
+#include <linux/version.h>
 #include <linux/mutex.h>
 #include <linux/netdevice.h>
 #include <linux/of.h>
@@ -919,7 +920,9 @@ static int __init fmcs_genl_init(void)
 		family->version		= FMCS_GENL_VERSION;
 		family->maxattr		= FMCS_ATTR_MAX;
 		family->policy		= fmcs_genl_policy;
-		family->netnsok		= true;
+		#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+			family->netnsok		= true;
+		#endif
 		family->module		= THIS_MODULE;
 
 		if (genl_register_family(family)) {
@@ -996,3 +999,4 @@ MODULE_DESCRIPTION("fpga management control system Module");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(FMCS_DRV_VERSION);
 MODULE_FIRMWARE(FMCS_FIRMWARE_NAME);
+
