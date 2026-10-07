@@ -297,7 +297,8 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
       continue
     fi
     # 目录名即包名：buildroot 约定 PKG_NAME ?= $(notdir ${CURDIR})
-    if grep -qx "Package: $n" tmp/.packageinfo 2>/dev/null; then
+    if grep -qx "Package: $n" tmp/.packageinfo 2>/dev/null \
+       || grep -qx "Package: kmod-$n" tmp/.packageinfo 2>/dev/null; then
       echo "  ✅ $n"
     else
       echo "  ❌ $n —— tmp/.packageinfo 里查不到"
