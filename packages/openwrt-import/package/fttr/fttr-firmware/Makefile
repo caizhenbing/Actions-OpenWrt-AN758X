@@ -3,12 +3,16 @@
 #
 # The driver declares MODULE_FIRMWARE("FTTR_TOP.sbit") and loads it with
 # request_firmware(), so the blob has to be in the rootfs at
-# /lib/firmware/FTTR_TOP.sbit.  Keeping it in its own package means the 2 MB
-# binary is not committed to git with the source, and a board that already has
-# the FPGA configured some other way can simply not install this.
+# /lib/firmware/FTTR_TOP.sbit.  A board that already has the FPGA configured
+# some other way can simply not install this.
 #
-# Put the bitstream at src/FTTR_TOP.sbit before building.  install-into-openwrt.sh
+# Put the bitstream at src/FTTR_TOP.sbit before building — the path is
+# FTTR_FW_SRC_DIR below, and there is no fallback.  install-into-openwrt.sh
 # copies it from the stock rootfs when it can find one.
+#
+# Whether to commit the 2 MB binary is the integrator's call; this repository
+# does not ship it, but a build repo may (see docs/CI_INTEGRATION.md).  It is
+# vendor-licensed (PKG_LICENSE below), not GPL like the driver.
 
 include $(TOPDIR)/rules.mk
 
@@ -26,7 +30,9 @@ define Package/fttr-firmware
   SECTION:=firmware
   CATEGORY:=Firmware
   TITLE:=FMCS FPGA bitstream (Pango Logos PGL50H)
-  DEPENDS:=+fttr-fmcs
+  # The driver is a KernelPackage: OpenWrt names it kmod-fttr-fmcs, not
+  # fttr-fmcs.  Depending on the bare name yields an unsatisfiable dependency.
+  DEPENDS:=+kmod-fttr-fmcs
 endef
 
 define Package/fttr-firmware/description
