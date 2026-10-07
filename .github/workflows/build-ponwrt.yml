@@ -296,7 +296,7 @@ jobs:
           sudo -E apt-get -yqq update
           sudo -E apt-get -yqq install build-essential clang llvm dwarves \
             libssl-dev libelf-dev bc flex bison python3 python3-distutils \
-            xz-utils tar unzip zip zstd dos2unix ccache gettext \
+            xz-utils tar unzip zip zstd dos2unix ccache gettext cmake xxhash \
             rsync file wget curl git subversion 2>/dev/null || true
 
           # 初始化编译环境：建议将该脚本入仓并按 commit sha 校验，
