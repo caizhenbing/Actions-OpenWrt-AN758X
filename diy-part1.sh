@@ -30,7 +30,7 @@ ADD_LUCKY=false        # luci-app-lucky（DDNS + socat）
 ADD_TAILSCALE=false    # luci-app-tailscale
 ADD_OPENLIST=false     # luci-app-openlist2（alist/openlist 挂载）
 ADD_SMARTDNS=false     # luci-app-smartdns
-
+ADD_FTTR=true          # H3C HM2004-DU 的 FTTR（FMCS FPGA）驱动与工具
 ADD_LUCI_APP=true       # qwe3017/luci-app 仓库（monorepo）
                         #   ├─ luci-app-natmode     NAT 类型三选一（网络 → NAT 类型）
                         #   └─ luci-app-pon-status  PON 光模块卡片（概览页「系统」下一格）
@@ -185,6 +185,37 @@ fi
 # 校验：默认开启的两个插件必须拉到，否则 defconfig 会静默剔除，
 #       编出来的固件缺少状态页还不易察觉
 # ---------------------------------------------------------
+# --- H3C HM2004-DU FTTR (FMCS) ---
+if [ "$ADD_FTTR" = "true" ]; then
+  if [ -n "${PROFILE:-}" ] && [ "$PROFILE" != "h3c_hm2004-du" ] && [ "$PROFILE" != "all" ]; then
+    echo "跳过 FTTR 包（当前机型: $PROFILE）"
+  else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    FTTR_SRC="${GITHUB_WORKSPACE:-$SCRIPT_DIR}/packages/openwrt-import/package/fttr"
+    for p in fttr-fmcs fttr-tools luci-app-h3c-fttr fttr-firmware; do
+      [ -f "$FTTR_SRC/$p/Makefile" ] || { echo "::error::找不到包 Makefile: $FTTR_SRC/$p/Makefile"; exit 1; }
+      rm -rf "$PKG_DIR/$p"; cp -r "$FTTR_SRC/$p" "$PKG_DIR/"; echo "✅ 已拷贝: $p"
+    done
+    # 比特流兜底搬进 src/（Makefile 的 FTTR_FW_SRC_DIR）
+    if [ -f "$PKG_DIR/fttr-firmware/FTTR_TOP.sbit" ] && [ ! -f "$PKG_DIR/fttr-firmware/src/FTTR_TOP.sbit" ]; then
+      mkdir -p "$PKG_DIR/fttr-firmware/src"
+      mv "$PKG_DIR/fttr-firmware/FTTR_TOP.sbit" "$PKG_DIR/fttr-firmware/src/FTTR_TOP.sbit"
+    fi
+    # 设备树：FMCS 节点，驱动 probe 依赖它
+    DTS="target/linux/airoha/dts/an7581-h3c-hm2004-du.dts"
+    FTTR_PATCH="${GITHUB_WORKSPACE:-$SCRIPT_DIR}/packages/openwrt-import/patches/0001-arm64-dts-airoha-hm2004-du-enable-fmcs.patch"
+    if [ -f "$DTS" ]; then
+      if grep -q 'nconfig-gpios' "$DTS"; then echo "DTS 已含 FMCS 节点，跳过"
+      elif [ -f "$FTTR_PATCH" ]; then
+        git apply --check "$FTTR_PATCH" 2>/dev/null && git apply "$FTTR_PATCH" \
+          || patch -p1 --forward -s -i "$FTTR_PATCH" \
+          || { echo "::error::FMCS DTS 补丁应用失败，驱动不会 probe"; exit 1; }
+        grep -q 'nconfig-gpios' "$DTS" || { echo "::error::DTS 补丁后仍无 nconfig-gpios"; exit 1; }
+      else echo "::error::找不到 DTS 补丁: $FTTR_PATCH"; exit 1; fi
+    else echo "::warning::$DTS 不存在（上游改名？），FTTR 驱动不会 probe"; fi
+  fi
+fi
+
 if [ "$ADD_AIROHA_NPU" = "true" ] && [ ! -d "$PKG_DIR/luci-app-airoha-npu" ]; then
   echo "::error::luci-app-airoha-npu 未拉到，config 里的 =y 会被 defconfig 剔除"
   exit 1
@@ -300,6 +331,15 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   [ -n "$INDEX_MISS" ] && echo "::warning::部分可选包未进入索引（不影响必装插件）:$INDEX_MISS"
 else
   echo "未启用任何第三方插件"
+fi
+# --- FTTR 索引校验（fttr-fmcs → kmod-fttr-fmcs）---
+if [ "$ADD_FTTR" = "true" ]; then
+  FTTR_MISS=""
+  for pair in "fttr-fmcs:kmod-fttr-fmcs" "fttr-tools:fttr-tools" "luci-app-h3c-fttr:luci-app-h3c-fttr" "fttr-firmware:fttr-firmware"; do
+    dir="${pair%%:*}"; sym="${pair##*:}"
+    grep -qx "Package: $sym" tmp/.packageinfo 2>/dev/null || { echo "  ❌ $dir -> $sym 不在 tmp/.packageinfo"; FTTR_MISS="$FTTR_MISS $sym"; }
+  done
+  [ -n "$FTTR_MISS" ] && { echo "::error::FTTR 包未进入索引:$FTTR_MISS —— defconfig 会静默剔除"; exit 1; }
 fi
 
 echo "🎉 diy-part1.sh 执行完毕"
