@@ -634,7 +634,7 @@ static const struct file_operations fmcs_mci_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= fmcs_mci_ioctl,
 #endif
-	.llseek		= no_llseek,
+	.llseek		= noop_llseek,
 };
 
 static int fmcs_mci_init(struct fmcs_dev *fmcs)
@@ -916,7 +916,18 @@ static int __init fmcs_genl_init(void)
 	for (i = 0; i < FMCS_GENL_NUM; i++) {
 		struct genl_family *family = &fmcs_genl_families[i];
 
+		/*
+		 * struct genl_family.name changed from a const char * to a fixed
+		 * char name[GENL_NAMSIZ] array in Linux 5.15 (genetlink hardening),
+		 * so a runtime assignment no longer compiles on 6.x.  Copy into the
+		 * array with strscpy on the new form; keep the pointer assignment
+		 * for older trees where name is still a const char *.
+		 */
+		#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+		strscpy(family->name, fmcs_genl_names[i], GENL_NAMSIZ);
+		#else
 		family->name		= fmcs_genl_names[i];
+		#endif
 		family->version		= FMCS_GENL_VERSION;
 		family->maxattr		= FMCS_ATTR_MAX;
 		family->policy		= fmcs_genl_policy;
