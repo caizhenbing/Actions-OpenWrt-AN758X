@@ -9,6 +9,12 @@
 # rather than in a Kconfig file, because an out-of-tree M= build never reads the
 # kernel's Kconfig.  See docs/PACKAGING.md section 3.
 
+# 必须在任何 include 之前用 $(lastword $(MAKEFILE_LIST)) 固定本包目录。
+# kmod 的 Build/Prepare 在内核 kbuild 上下文执行时，MAKEFILE_LIST 末尾会变成
+# 内核 Makefile，那时再取就会解析成 $(LINUX_DIR)/src（该目录不存在），导致 cp 失败。
+FTTR_FMCS_PKG_DIR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+FTTR_FMCS_SRC_DIR:=$(FTTR_FMCS_PKG_DIR)/src
+
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
@@ -18,8 +24,7 @@ PKG_RELEASE:=1
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=H3C HM2004-DU FTTR port
 
-# Sources ship beside this Makefile, so there is nothing to download.
-FTTR_FMCS_SRC_DIR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST)))src)
+# Sources ship beside this Makefile (FTTR_FMCS_SRC_DIR 已在文件头固定), nothing to download.
 
 include $(INCLUDE_DIR)/package.mk
 
