@@ -9,6 +9,7 @@
 #ifndef _FMCS_H
 #define _FMCS_H
 
+#include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mutex.h>
