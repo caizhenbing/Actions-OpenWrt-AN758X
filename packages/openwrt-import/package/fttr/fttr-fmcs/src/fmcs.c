@@ -249,8 +249,8 @@ static netdev_tx_t fmcs_omci_start_xmit(struct sk_buff *skb,
  *
  * Called from process context (the event thread), so netif_rx() is sufficient.
  */
-static void fmcs_netdev_deliver(struct net_device *dev, const void *payload,
-				size_t len)
+static void __maybe_unused fmcs_netdev_deliver(struct net_device *dev,
+					     const void *payload, size_t len)
 {
 	struct sk_buff *skb;
 	__be16 proto;
