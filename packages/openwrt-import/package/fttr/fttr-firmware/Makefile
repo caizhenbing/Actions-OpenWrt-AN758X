@@ -14,6 +14,12 @@
 # does not ship it, but a build repo may (see docs/CI_INTEGRATION.md).  It is
 # vendor-licensed (PKG_LICENSE below), not GPL like the driver.
 
+# 必须在任何 include 之前固定本包目录。OpenWrt 的 rules.mk/package.mk 包含链末尾
+# 不是本 Makefile，否则 $(lastword $(MAKEFILE_LIST)) 会指向别的 .mk（如工具链下的片段），
+# 导致 FTTR_FW_SRC_DIR 被解析成 $(TOOLCHAIN_DIR)/src，install 阶段找不到 sbit。
+FTTR_FW_PKG_DIR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+FTTR_FW_SRC_DIR:=$(FTTR_FW_PKG_DIR)/src
+
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=fttr-firmware
@@ -21,8 +27,6 @@ PKG_VERSION:=1.0
 PKG_RELEASE:=1
 PKG_LICENSE:=Proprietary
 PKG_MAINTAINER:=H3C HM2004-DU FTTR port
-
-FTTR_FW_SRC_DIR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST)))src)
 
 include $(INCLUDE_DIR)/package.mk
 
