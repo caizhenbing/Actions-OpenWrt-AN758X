@@ -40,9 +40,9 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
-#include "fmcs_uapi.h"
 #include <linux/if_ether.h>	/* ETH_P_ALL, ETH_ALEN —— musl 下用户态可用 UAPI 头 */
+#include "fmcs_uapi.h"
+
 #define MINIOLT_NAME	"miniolt"
 
 /* The vendor retries SIOCGIFINDEX ten times, sleeping two seconds each time. */
